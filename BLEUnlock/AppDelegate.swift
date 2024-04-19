@@ -16,6 +16,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemVa
     let unlockRSSIMenu = NSMenu()
     let timeoutMenu = NSMenu()
     let lockDelayMenu = NSMenu()
+    let externalDisplayMenu = NSMenu()
     var deviceDict: [UUID: NSMenuItem] = [:]
     var monitorMenuItem : NSMenuItem?
     let prefs = UserDefaults.standard
@@ -30,6 +31,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemVa
     var unlockedAt = 0.0
     var inScreensaver = false
     var lastRSSI: Int? = nil
+    var externalDisplayModelOnly = false
 
     func menuWillOpen(_ menu: NSMenu) {
         if menu == deviceMenu {
@@ -277,6 +279,58 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemVa
         return false
     }
     
+    func getDisplayUUIDs() -> [(localizedName: String, uuidString: String)] {
+        var displayInfoArray: [(localizedName: String, uuidString: String)] = []
+        
+        let screens = NSScreen.screens
+        for screen in screens {
+            let deviceDescription = screen.deviceDescription
+            if let screenNumber = deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID {
+                let uuidRef = CGDisplayCreateUUIDFromDisplayID(screenNumber)?.takeRetainedValue()
+                if let uuidRef = uuidRef {
+                    let uuidString = CFUUIDCreateString(kCFAllocatorDefault, uuidRef) as String
+                    displayInfoArray.append((localizedName: screen.localizedName, uuidString: uuidString))
+                }
+            }
+        }
+        return displayInfoArray
+    }
+    
+    func updateExternalMonitor() {
+        externalDisplayMenu.removeAllItems()
+        let selectedDisplayUUIDs = prefs.array(forKey: "externalDisplays") as? [String] ?? []
+        let displays = getDisplayUUIDs() // Assuming this returns an array of display objects with localizedName and uuidString properties
+        
+        for display in displays {
+            let menuItem = NSMenuItem(title: display.localizedName, action: nil, keyEquivalent: "") // Default action to nil
+            menuItem.representedObject = display.uuidString
+            
+            if display.localizedName.contains("Built-in") {
+                // For built-in display, do not set an action and disable the menu item
+                menuItem.isEnabled = false
+            } else {
+                // For external displays, set the action and state based on whether they are selected
+                menuItem.action = #selector(setExternalDisplays(_:))
+                menuItem.target = self
+                menuItem.state = selectedDisplayUUIDs.contains(display.uuidString) ? .on : .off
+            }
+            
+            externalDisplayMenu.addItem(menuItem)
+        }
+    }
+    
+    func isExternalDisplayConnected() -> Bool {
+        let selectedDisplayUUIDs = prefs.array(forKey: "externalDisplays") as? [String] ?? []
+        
+        if selectedDisplayUUIDs.isEmpty {
+            return false
+        }
+        
+        let connectedDisplayUUIDs = getDisplayUUIDs().map { $0.uuidString }
+        
+        return selectedDisplayUUIDs.allSatisfy { connectedDisplayUUIDs.contains($0) }
+    }
+    
     func tryUnlockScreen() {
         guard !manualLock else { return }
         guard ble.presence else { return }
@@ -290,6 +344,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemVa
             // Esc key down and up
             CGEvent(keyboardEventSource: src, virtualKey: 0x35, keyDown: true)?.post(tap: .cghidEventTap)
             CGEvent(keyboardEventSource: src, virtualKey: 0x35, keyDown: false)?.post(tap: .cghidEventTap)
+        }
+        
+        if self.prefs.bool(forKey: "externalDisplayModelOnly") && !isExternalDisplayConnected() {
+            print("External Display is not connected")
+            return
         }
 
         guard !self.prefs.bool(forKey: "wakeWithoutUnlocking") else { return }
@@ -352,6 +411,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemVa
         manualLock = false
         Timer.scheduledTimer(withTimeInterval: 2, repeats: false, block: { _ in
             checkUpdate()
+        })
+        Timer.scheduledTimer(withTimeInterval: 2, repeats: false, block: { _ in
+            self.updateExternalMonitor()
         })
     }
 
@@ -489,6 +551,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemVa
         menuItem.state = value ? .on : .off
         prefs.set(value, forKey: "wakeOnProximity")
     }
+    
+    @objc func toggleExternalDisplayModeOnly(_ menuItem: NSMenuItem) {
+        let value = !prefs.bool(forKey: "externalDisplayModelOnly")
+        menuItem.state = value ? .on : .off
+        prefs.set(value, forKey: "externalDisplayModelOnly")
+    }
 
     @objc func setLockRSSI(_ menuItem: NSMenuItem) {
         let value = menuItem.tag
@@ -550,6 +618,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemVa
         let wakeWithoutUnlocking = !prefs.bool(forKey: "wakeWithoutUnlocking")
         prefs.set(wakeWithoutUnlocking, forKey: "wakeWithoutUnlocking")
         menuItem.state = wakeWithoutUnlocking ? .on : .off
+    }
+    
+    @objc func setExternalDisplays(_ menuItem: NSMenuItem) {
+        guard let uuidString = menuItem.representedObject as? String else { return }
+      
+        menuItem.state = (menuItem.state == .on) ? .off : .on
+      
+        var selectedDisplayUUIDs = prefs.array(forKey: "externalDisplays") as? [String] ?? []
+        if menuItem.state == .on {
+            selectedDisplayUUIDs.append(uuidString)
+        } else {
+            selectedDisplayUUIDs.removeAll { $0 == uuidString }
+        }
+        prefs.set(selectedDisplayUUIDs, forKey: "externalDisplays")
     }
 
     @objc func lockNow() {
@@ -622,6 +704,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemVa
         if prefs.bool(forKey: "wakeOnProximity") {
             item.state = .on
         }
+        
+        mainMenu.addItem(NSMenuItem.separator())
+        item = mainMenu.addItem(withTitle: t("external_display_mode_only"), action: #selector(toggleExternalDisplayModeOnly), keyEquivalent: "")
+        if prefs.bool(forKey: "externalDisplayModelOnly") {
+            item.state = .on
+        }
+        
+        item = mainMenu.addItem(withTitle: t("external_displays"), action: nil, keyEquivalent: "")
+        item.submenu = externalDisplayMenu
+        externalDisplayMenu.delegate = self
+        mainMenu.addItem(NSMenuItem.separator())
 
         item = mainMenu.addItem(withTitle: t("wake_without_unlocking"), action: #selector(toggleWakeWithoutUnlocking), keyEquivalent: "")
         if prefs.bool(forKey: "wakeWithoutUnlocking") {
@@ -705,7 +798,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemVa
         if lockDelay != 0 {
             ble.proximityTimeout = Double(lockDelay)
         }
-
+        
+        updateExternalMonitor()
+        
         NSUserNotificationCenter.default.delegate = self
 
         let nc = NSWorkspace.shared.notificationCenter;
@@ -722,6 +817,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemVa
         if ble.unlockRSSI != ble.UNLOCK_DISABLED && !prefs.bool(forKey: "wakeWithoutUnlocking") && fetchPassword() == nil {
             askPassword()
         }
+        
         checkAccessibility()
         checkUpdate()
 
