@@ -68,6 +68,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemVa
                     item.state = .off
                 }
             }
+        } else if menu == externalDisplayMenu {
+            updateExternalMonitor()
         }
     }
 
@@ -299,17 +301,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemVa
     func updateExternalMonitor() {
         externalDisplayMenu.removeAllItems()
         let selectedDisplayUUIDs = prefs.array(forKey: "externalDisplays") as? [String] ?? []
-        let displays = getDisplayUUIDs() // Assuming this returns an array of display objects with localizedName and uuidString properties
+        let displays = getDisplayUUIDs()
         
         for display in displays {
-            let menuItem = NSMenuItem(title: display.localizedName, action: nil, keyEquivalent: "") // Default action to nil
+            let menuItem = NSMenuItem(title: display.localizedName, action: nil, keyEquivalent: "")
             menuItem.representedObject = display.uuidString
             
             if display.localizedName.contains("Built-in") {
-                // For built-in display, do not set an action and disable the menu item
                 menuItem.isEnabled = false
             } else {
-                // For external displays, set the action and state based on whether they are selected
                 menuItem.action = #selector(setExternalDisplays(_:))
                 menuItem.target = self
                 menuItem.state = selectedDisplayUUIDs.contains(display.uuidString) ? .on : .off
@@ -411,9 +411,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemVa
         manualLock = false
         Timer.scheduledTimer(withTimeInterval: 2, repeats: false, block: { _ in
             checkUpdate()
-        })
-        Timer.scheduledTimer(withTimeInterval: 2, repeats: false, block: { _ in
-            self.updateExternalMonitor()
         })
     }
 
@@ -798,9 +795,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemVa
         if lockDelay != 0 {
             ble.proximityTimeout = Double(lockDelay)
         }
-        
-        updateExternalMonitor()
-        
+
         NSUserNotificationCenter.default.delegate = self
 
         let nc = NSWorkspace.shared.notificationCenter;
@@ -817,7 +812,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemVa
         if ble.unlockRSSI != ble.UNLOCK_DISABLED && !prefs.bool(forKey: "wakeWithoutUnlocking") && fetchPassword() == nil {
             askPassword()
         }
-        
         checkAccessibility()
         checkUpdate()
 
