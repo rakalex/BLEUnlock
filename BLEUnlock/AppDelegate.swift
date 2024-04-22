@@ -795,7 +795,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemVa
         if lockDelay != 0 {
             ble.proximityTimeout = Double(lockDelay)
         }
-        
         NSUserNotificationCenter.default.delegate = self
 
         let nc = NSWorkspace.shared.notificationCenter;
@@ -812,7 +811,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemVa
         if ble.unlockRSSI != ble.UNLOCK_DISABLED && !prefs.bool(forKey: "wakeWithoutUnlocking") && fetchPassword() == nil {
             askPassword()
         }
-        
+
         checkAccessibility()
         checkUpdate()
 
