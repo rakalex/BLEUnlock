@@ -292,7 +292,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemVa
                 if let uuidRef = uuidRef {
                     let uuidString = CFUUIDCreateString(kCFAllocatorDefault, uuidRef) as String
                     if #available(macOS 10.15, *) {
-                        displayInfoArray.append((localizedName: screen.description, uuidString: uuidString))
+                        displayInfoArray.append((localizedName: screen.localizedName, uuidString: uuidString))
                     } else {
                         displayInfoArray.append((localizedName: uuidString, uuidString: uuidString))
                     }
